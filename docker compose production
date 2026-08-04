@@ -7,7 +7,7 @@ version: "3.9"
 
 services:
   app:
-    image: ghcr.io/OWNER/REPO:latest   # <-- replace OWNER/REPO with your GitHub repo
+    image: ghcr.io/raghavendar-axiora/python3:latest
     container_name: app
     restart: unless-stopped
     ports:
