@@ -120,3 +120,40 @@ jobs:
           docker compose -f docker-compose.prod.yml pull app
           docker compose -f docker-compose.prod.yml up -d app
           docker image prune -f
+
+  # --- CD: deploy to a local Kubernetes cluster (minikube/kind) via the same self-hosted runner ---
+  # Requires: kubectl installed on the runner, and its kubeconfig pointing at your local cluster
+  # (this is automatic for minikube/kind once you've run `minikube start` / `kind create cluster`
+  # on that same machine).
+  deploy-k8s:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify cluster connectivity
+        run: kubectl cluster-info
+
+      # --- Create/update the imagePullSecret so the cluster can pull from private GHCR ---
+      - name: Create GHCR pull secret
+        run: |
+          kubectl create secret docker-registry ghcr-pull-secret \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply manifests
+        run: kubectl apply -f k8s/
+
+      # --- Force the cluster to pull the freshly-pushed :latest tag ---
+      - name: Roll out new image
+        run: |
+          kubectl rollout restart deployment/app
+          kubectl rollout status deployment/app --timeout=120s
+
+      - name: Show pod status
+        if: always()
+        run: kubectl get pods -l app=app -o wide
